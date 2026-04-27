@@ -1,6 +1,6 @@
 ﻿# Fusion 主模型技术报告
 
-## 0. Fusion 架构与参数配置（文档开头总览）
+## 0. Fusion 架构与参数配置
 
 ### 0.1 架构原理
 
@@ -176,6 +176,53 @@ $$
 
 ![r2_gap_vs_fusion](../results/baselines_all/filtered_r2_ge0/figures/all_models_r2_gap_vs_fusion_primary_clean24.png)
 
+### 3.1 Baseline 各模型实现与主模型差异
+
+本节按项目脚本中的真实实现给出基线模型定义，并与 Fusion 主模型（`encoder_mask_only + ssm_variant=fusion`）逐一比较。
+
+#### 3.1.1 深度 baseline（`run_deep_baselines_filtered_compare.py`）
+
+1. `patch_transformer_ae`
+	- 实现：`Conv1d` patch embedding + 可学习位置编码 + `TransformerEncoder` + `Linear` patch 重建头。
+	- 重建方式：直接重建整段序列，不使用双分支状态空间。
+	- 与主模型差异：无 Mamba 状态空间、无 Bi-Mamba3/Bi-Mamba 门控融合、无情绪评分偏置注入。
+
+2. `masked_transformer_ae`
+	- 实现：结构与 `patch_transformer_ae` 相同，但加入 `mask_token`，训练时对 token 级随机掩码后再编码重建。
+	- 重建方式：Transformer 掩码自编码。
+	- 与主模型差异：虽有 token mask，但编码器骨干是 Transformer 而非状态空间双向堆栈；无双分支门控融合；无 aux bias 条件偏置。
+
+3. `tcn_ae`
+	- 实现：`1x1 Conv` 输入投影 + 多层空洞卷积残差块（dilation 递增）+ `1x1 Conv` 输出。
+	- 重建方式：纯卷积时序重建。
+	- 与主模型差异：无 patch token 机制、无状态空间递推、无双向分支与门控、无 aux bias。
+
+4. `timesnet_ae`
+	- 实现：`Linear` 投影 + `TimesBlock` 堆叠；`TimesBlock` 通过 FFT 提取主周期并做多尺度 1D inception 卷积。
+	- 重建方式：周期建模驱动的自编码重建。
+	- 与主模型差异：无 Mamba 状态更新、无双分支融合与门控、无 aux bias 条件调制。
+
+深度 baseline 的公共训练口径：同样读取 `encoder_random_mask_ratio / encoder_eval_mask_ratio`，并在输入侧做随机置零掩码；优化器为 AdamW，损失为 Huber，早停策略与主流程保持可比。
+
+#### 3.1.2 经典 baseline（`run_classic_ml_baselines_filtered_compare.py`）
+
+1. `ridge`
+	- 实现：`PCA(x)` + `PCA(y)` 降维后，用 `Ridge` 做多输出线性回归，再逆变换回原特征空间。
+
+2. `pls`
+	- 实现：`PCA(x)` + `PCA(y)` 后，使用 `PLSRegression` 做潜变量回归，再逆变换。
+
+3. `random_forest`
+	- 实现：`PCA(x)` + `PCA(y)` 后，使用 `RandomForestRegressor`（200 棵树、限定深度）回归。
+
+经典 baseline 与主模型的关键差异：
+
+1. 输入展平为二维向量后建模（样本级回归），不保留 token 级时序状态演化。
+2. 无 patch 化、无双向状态空间堆栈、无门控融合。
+3. 无情绪评分辅助偏置分支。
+
+因此，baseline 区域本质上是在“统一数据切分与统一评价口径”下，对比不同建模范式相对于 Fusion 主模型的上限差距。
+
 ## 4. 消融实验（四路）
 
 本节统一以 Fusion 为基准，比较 3 个消融对象：
@@ -214,6 +261,39 @@ $$
 2. mamba 相比 Fusion 有中等退化，但优于 mamba3。
 3. no_aux_bias 退化最大，说明情绪评分偏置对当前任务有显著正向作用。
 
+### 4.1 消融模型具体实现与主模型差异
+
+本节对应项目主训练脚本中 `prediction_mode=encoder_mask_only` 分支的实现。
+
+1. Fusion（主模型）
+	- 参数组合：`ssm_variant=fusion`，`disable_aux_bias=false`。
+	- 结构：`MultiModalMambaKANEncoderMaskOnlyFusion`。
+	- 机制：并行构建 Bi-Mamba3 与 Bi-Mamba 两路双向堆栈，得到 `h_m3` 与 `h_m` 后，以
+	  $$
+	  g=\sigma(W_g[h_{m3};h_m]+b_g),\quad h=g\odot h_{m3}+(1-g)\odot h_m
+	  $$
+	  做 token 级门控融合，再通过 patch 重建头还原序列。
+
+2. mamba3 消融
+	- 参数组合：`ssm_variant=mamba3`，`disable_aux_bias=false`。
+	- 结构：`MultiModalMambaKANEncoderMaskOnly`（单一路双向堆栈）。
+	- 与主模型差异：移除 Bi-Mamba 分支与门控融合，仅保留 Bi-Mamba3 主干。
+
+3. mamba 消融
+	- 参数组合：`ssm_variant=mamba`，`disable_aux_bias=false`。
+	- 结构：同为 `MultiModalMambaKANEncoderMaskOnly`，但底层状态方程切换为 mamba 变体。
+	- 与主模型差异：既移除融合门控，又将状态更新从 mamba3 退化为 mamba。
+
+4. no_aux_bias 消融
+	- 参数组合：`disable_aux_bias=true`（其余结构与对应主干保持一致，实验脚本中通常基于 Fusion 主干加载基线权重后仅关闭 aux bias 通路评估）。
+	- 实现方式：训练脚本中的 aux 注入分支被跳过，即不执行 `x = x + SiLU(W_aux y_aux)`。
+	- 与主模型差异：去除情绪评分条件偏置，仅依赖生理信号自身进行掩码重建。
+
+5. 实验执行入口（用于复现差异）
+	- `run_bimamba_ablation_filtered.py`：调用主训练脚本并传入 `--ssm_variant mamba` 形成 mamba 消融。
+	- `run_no_aux_bias_ablation_filtered.py`：调用主训练脚本并传入 `--disable_aux_bias true` 形成 no_aux_bias 消融。
+	- mamba3 对照来自同一训练脚本的 `ssm_variant=mamba3` 结果，随后由汇总脚本统一并入四路对比表。
+
 ## 5. 通道级结果（Fusion, clean24）
 
 文件：
@@ -241,4 +321,12 @@ $$
 ## 7. 资产索引
 
 - ../results/summary/fusion_primary_clean24_report_assets.json
+
+## 7. 各个多模态通道简述
+| 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+| 8 | 10 | 15 | 21 | 22 | 23 | 24 | 26 | 27 | 28 | 31 | 35 | 36 | 37 | 38 | 39 | 40 |
+| T7 | CP1 | Oz | F8 | FC6 | FC2 | Cz | T8 | CP6 | CP2 | PO4 | zEMG | tEMG | GSR | Respiration Belt | PPG | Temp |
+
+
+
 
