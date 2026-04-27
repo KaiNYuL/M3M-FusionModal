@@ -1,0 +1,71 @@
+# Mask-only config: random patch masking and full-sequence reconstruction
+
+config: ""
+prediction_mode: "encoder_mask_only"
+init_from_checkpoint: ""
+init_load_mode: "backbone"
+
+device: "cuda"
+data: "data/s01.dat"
+max_subjects: 1
+outdir: "outputs/deap_multimodal_mask_only_s01_v2"
+
+selected_channels_1based: [8, 10, 15, 21, 22, 23, 24, 26, 27, 28, 31, 35, 36, 37, 38, 39, 40]
+
+# mask-only split
+# input_ratio is ignored in encoder_mask_only mode.
+input_ratio: 0.85
+group_split: false
+subject_norm: false
+enforce_single_subject: true
+test_size: 0.25
+val_size: 0.25
+
+# training
+epochs: 160
+batch_size: 8
+seed: 42
+patience: 16
+
+# model
+d_model: 32
+d_state: 64
+headdim: 16
+n_bi_layers: 2
+use_mimo: "auto"
+mimo_rank: 2
+min_vram_gb_for_mimo: 10.0
+chunk_size: 32
+patch_size: 96
+preconv_kernel: 5
+dropout: 0.15
+
+# decoder-only params (unused in encoder_mask but kept for compatibility)
+kan_hidden: 32
+kan_grid_size: 6
+
+# mask params
+encoder_random_mask_ratio: 0.15
+encoder_eval_mask_ratio: 0.0
+mask_loss_on_masked_only: true
+mask_visible_loss_weight: 0.05
+mask_observed_residual: true
+
+# optimization
+lr: 8.0e-5
+min_lr: 1e-6
+weight_decay: 0.01
+noise_std: 0.001
+grad_clip: 1.0
+loss_type: "huber"
+huber_delta: 1.0
+selection_metric: "val_loss"
+channel_weight_min: 0.2
+channel_weight_max: 5.0
+use_channel_weight: false
+use_last_step_residual: false
+
+# robustness
+n_missing_random: 2
+random_missing_list: [1, 2, 3]
+robustness_repeats: 5

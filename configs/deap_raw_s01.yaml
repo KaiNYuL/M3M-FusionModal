@@ -1,0 +1,48 @@
+# DEAP raw time-series training config for deap_mamba3_regression.py
+# Usage:
+#   python mamba3-minimal/deap_mamba3_regression.py --config mamba3-minimal/configs/deap_raw_s01.yaml
+
+# Data
+config: ""
+device: "cuda"
+data: "data"
+max_subjects: 24
+group_split: true
+subject_norm: true
+window_size: 1024
+window_stride: 896
+outdir: "outputs/deap_raw_all"
+
+# Training
+epochs: 160
+batch_size: 16
+seed: 42
+seeds: "42"
+
+# Model
+d_model: 24
+d_state: 64
+headdim: 16
+# After first-difference (4031), script auto-pads time to be divisible by chunk_size.
+chunk_size: 63
+head_type: "linear" # head_type: conv 或 linear 
+#conv 头：保留时序卷积
+#linear 头：去掉 Conv1d，仅做双向特征池化 + LayerNorm + 线性输出，容量更低
+dropout: 0.55
+
+# Optimization
+lr: 2e-5
+min_lr: 1e-7
+weight_decay: 0.12
+noise_std: 0.005
+patience: 8
+loss_mode: "hybrid_cls" # loss_mode: regression 或 hybrid_cls
+cls_weight: 0.6 # cls_weight: 分类损失权重
+cls_threshold: 4.5 # cls_threshold: 分类阈值（当前 4.0）
+
+# 新增联合损失 hybrid_cls
+# 回归项：MSE（在标准化标签空间）
+# 分类项：BCEWithLogits
+# 总损失：
+# total_loss = mse_loss + λ * bce_loss
+# 其中 λ 是 cls_weight，控制分类损失在总损失中的权重。cls_threshold 用于将连续标签转换为二分类标签（>4为正类）。

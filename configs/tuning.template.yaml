@@ -1,0 +1,33 @@
+runtime:
+  device: auto  # 运行设备: auto/cpu/cuda/mps。auto会自动选择可用的最佳设备。
+  seed: 42  # 随机种子: 控制初始化与随机输入，便于结果复现。
+
+model:
+  d_model: 256  # 主隐藏维度D: 模型容量核心参数，越大表达能力越强但显存/计算开销越高。
+  n_layer: 6  # 层数L: 堆叠的Mamba3 block数量，越深通常效果更好但训练更慢。
+  d_state: 128  # SSM状态维度N: 长程状态记忆能力相关，必须为偶数(用于RoPE成对旋转)。
+  expand: 2  # 扩展系数E: d_inner = expand * d_model，增大可提升容量也会增加参数量。
+  headdim: 16  # 每个head维度P: 需满足(d_inner % headdim == 0)，影响head数量与并行形状。
+  chunk_size: 16  # SSD分块长度Q: 训练序列需被Q整除；大Q吞吐可能更高但峰值显存更大。
+  vocab_size: 50277  # 词表大小: LM输出类别数；代码内部会按16的倍数自动padding。
+  use_mimo: True  # 是否启用MIMO分支: true=Rank-R版本(更强表达/更高开销)，false=SISO基线。
+  mimo_rank: 4  # MIMO秩R: 仅在use_mimo=true时生效，R越大表达能力越强但计算更重。
+
+init:
+  a_log_min: -4.0  # A_log初始化下界: 控制状态衰减速度范围(与a_log_max共同作用)。
+  a_log_max: -1.0  # A_log初始化上界: 数值越接近0，状态衰减通常更慢。
+  dt_bias_min: 0.001  # dt_bias初始化下界: 影响离散步长dt，进而影响alpha/beta/gamma系数。
+  dt_bias_max: 0.1  # dt_bias初始化上界: 上界过大可能使更新过激，建议小范围调。
+  weight_std: 0.02  # 线性层权重正态初始化标准差: 过大可能不稳，过小可能收敛慢。
+  d_skip_init: 1.0  # 跳连系数D初值: 控制y + D*x中的直通强度，1.0是常用稳健起点。
+
+experiment:
+  batch_size: 1  # 前向测试批大小: 主要影响显存与吞吐，不改变模型结构。
+  seq_len: 128  # 前向测试序列长度: run_config中会自动对齐到chunk_size的整数倍。
+  prompt_token_ids: [1, 2, 3, 4]  # 生成起始prompt token id序列(1D)，用于测试generate流程。
+  run_generation: true  # 是否执行自回归生成: false时仅跑一次forward并打印shape。
+  max_new_length: 20  # 最大新生成token数: 越大生成越长，耗时越高。
+  temperature: 0.7  # 采样温度: <1更保守，>1更随机，=1不缩放logits。
+  top_k: 50  # Top-K采样: 每步只在概率最高的K个token中采样，0表示不启用Top-K。
+  top_p: 1.0  # Top-P(核采样): 按累计概率截断候选，1.0表示不启用截断。
+  eos_token_id: 0  # 终止token id: 生成到该id时提前停止。
