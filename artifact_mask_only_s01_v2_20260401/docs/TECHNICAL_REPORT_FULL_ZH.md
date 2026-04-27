@@ -16,7 +16,7 @@ $$
 
 其中 $B$ 为 batch，$T$ 为时间长度，$C$ 为通道数。主流程先做通道投影与分段映射：
 
-1. 线性/卷积前端：`disable_preconv=true` 时使用 `Linear(C -> d_model)`，否则使用 `Conv1d(C -> d_model)`。
+1. 线性/卷积前端：`disable_preconv=true` 时使用 `Linear(C -> d_model)`，否则使用 `Conv1d(C -> d_model)`。该模型使用线性前端做激活。
 2. 激活函数：前端投影后统一使用 SiLU。
 3. Patch 映射：`Conv1d(kernel=patch_size, stride=patch_size)` 将时间轴切分为 patch token。
 
@@ -64,7 +64,7 @@ $$
 H_{fusion} = g \odot H_{mamba3} + (1-g) \odot H_{mamba}
 $$
 
-其中 `gate_bias` 提供可学习先验，控制训练早期更偏向哪一路分支。
+初始参数中的 `gate_bias` 提供可学习先验，通过修改该参数可以控制训练早期更偏向哪一路分支。
 
 #### 0.1.4 情绪评分偏置（aux bias）在模型中的体现
 
@@ -323,9 +323,10 @@ $$
 - ../results/summary/fusion_primary_clean24_report_assets.json
 
 ## 7. 各个多模态通道简述
-| 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
-| 8 | 10 | 15 | 21 | 22 | 23 | 24 | 26 | 27 | 28 | 31 | 35 | 36 | 37 | 38 | 39 | 40 |
-| T7 | CP1 | Oz | F8 | FC6 | FC2 | Cz | T8 | CP6 | CP2 | PO4 | zEMG | tEMG | GSR | Respiration Belt | PPG | Temp |
+|通道编号| 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+|DEAP原始通道| 8 | 10 | 15 | 21 | 22 | 23 | 24 | 26 | 27 | 28 | 31 | 35 | 36 | 37 | 38 | 39 | 40 |
+|通道名称| T7 | CP1 | Oz | F8 | FC6 | FC2 | Cz | T8 | CP6 | CP2 | PO4 | zEMG | tEMG | GSR | Rsp | PPG | Temp |
 
 
 
